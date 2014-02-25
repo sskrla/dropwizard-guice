@@ -1,5 +1,6 @@
 package com.hubspot.dropwizard.guice;
 
+import com.google.inject.*;
 import io.dropwizard.Configuration;
 import io.dropwizard.ConfiguredBundle;
 import io.dropwizard.setup.Bootstrap;
@@ -8,10 +9,6 @@ import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.inject.Guice;
-import com.google.inject.Injector;
-import com.google.inject.Module;
-import com.google.inject.Stage;
 import com.google.inject.servlet.GuiceFilter;
 import com.sun.jersey.api.core.ResourceConfig;
 import com.sun.jersey.spi.container.servlet.ServletContainer;
@@ -27,10 +24,10 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
 
     private final AutoConfig autoConfig;
     private final List<Module> modules;
+    private Injector initInjector;
     private Injector injector;
     private DropwizardEnvironmentModule dropwizardEnvironmentModule;
     private Optional<Class<T>> configurationClass;
-    private GuiceContainer container;
     private Stage stage;
 
 
@@ -83,30 +80,20 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
 
     @Override
     public void initialize(Bootstrap<?> bootstrap) {
-        container = new GuiceContainer();
-        JerseyContainerModule jerseyContainerModule = new JerseyContainerModule(container);
-        if (configurationClass.isPresent()) {
-            dropwizardEnvironmentModule = new DropwizardEnvironmentModule<T>(configurationClass.get());
-        } else {
-            dropwizardEnvironmentModule = new DropwizardEnvironmentModule<Configuration>(Configuration.class);
-        }
-        modules.add(jerseyContainerModule);
-        modules.add(dropwizardEnvironmentModule);
-
-        initInjector();
-
+        initInjector = Guice.createInjector(this.stage);
         if (autoConfig != null) {
             autoConfig.initialize(bootstrap, injector);
         }
     }
 
-    private void initInjector() {
-        injector = Guice.createInjector(this.stage, modules);
+    private Injector initInjector() {
+        return injector = initInjector.createChildInjector(modules);
     }
 
     @Override
     public void run(final T configuration, final Environment environment) {
-        container.setResourceConfig(environment.jersey().getResourceConfig());
+        final GuiceContainer container = initGuice(configuration, environment);
+
         environment.jersey().replace(new Function<ResourceConfig, ServletContainer>() {
             @Nullable
             @Override
@@ -116,16 +103,31 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
         });
         environment.servlets().addFilter("Guice Filter", GuiceFilter.class)
                 .addMappingForUrlPatterns(null, false, environment.getApplicationContext().getContextPath() + "*");
-        setEnvironment(configuration, environment);
 
         if (autoConfig != null) {
             autoConfig.run(environment, injector);
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private void setEnvironment(final T configuration, final Environment environment) {
+    private GuiceContainer initGuice(final T configuration, final Environment environment) {
+        GuiceContainer container = new GuiceContainer();
+        container.setResourceConfig(environment.jersey().getResourceConfig());
+
+        JerseyContainerModule jerseyContainerModule = new JerseyContainerModule(container);
+        if (configurationClass.isPresent()) {
+            dropwizardEnvironmentModule = new DropwizardEnvironmentModule<T>(configurationClass.get());
+        } else {
+            dropwizardEnvironmentModule = new DropwizardEnvironmentModule<Configuration>(Configuration.class);
+        }
         dropwizardEnvironmentModule.setEnvironmentData(configuration, environment);
+
+        modules.add(jerseyContainerModule);
+        modules.add(dropwizardEnvironmentModule);
+
+        injector = initInjector();
+        injector.injectMembers(container);
+
+        return container;
     }
 
     public Injector getInjector() {
