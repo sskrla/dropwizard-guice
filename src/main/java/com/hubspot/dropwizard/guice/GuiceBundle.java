@@ -1,21 +1,25 @@
 package com.hubspot.dropwizard.guice;
 
-import com.google.inject.*;
-import io.dropwizard.Configuration;
-import io.dropwizard.ConfiguredBundle;
-import io.dropwizard.setup.Bootstrap;
-import io.dropwizard.setup.Environment;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.inject.Guice;
+import com.google.inject.Injector;
+import com.google.inject.Module;
+import com.google.inject.Stage;
 import com.google.inject.servlet.GuiceFilter;
 import com.sun.jersey.api.core.ResourceConfig;
 import com.sun.jersey.spi.container.servlet.ServletContainer;
+import io.dropwizard.Configuration;
+import io.dropwizard.ConfiguredBundle;
+import io.dropwizard.setup.Bootstrap;
+import io.dropwizard.setup.Environment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
+import javax.servlet.ServletContextListener;
 import java.util.List;
 
 public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T> {
@@ -24,6 +28,7 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
 
     private final AutoConfig autoConfig;
     private final List<Module> modules;
+    private final List<Function<Injector, ServletContextListener>> contextListenerGenerators;
     private Injector initInjector;
     private Injector injector;
     private DropwizardEnvironmentModule dropwizardEnvironmentModule;
@@ -34,11 +39,18 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
     public static class Builder<T extends Configuration> {
         private AutoConfig autoConfig;
         private List<Module> modules = Lists.newArrayList();
+        private List<Function<Injector, ServletContextListener>> contextListenerGenerators = Lists.newArrayList();
         private Optional<Class<T>> configurationClass = Optional.<Class<T>>absent();
 
         public Builder<T> addModule(Module module) {
             Preconditions.checkNotNull(module);
             modules.add(module);
+            return this;
+        }
+
+        public Builder<T> addServletContextListener(Function<Injector, ServletContextListener> contextListenerGenerator) {
+            Preconditions.checkNotNull(contextListenerGenerator);
+            contextListenerGenerators.add(contextListenerGenerator);
             return this;
         }
 
@@ -59,7 +71,7 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
         }
 
         public GuiceBundle<T> build(Stage s) {
-            return new GuiceBundle<T>(s, autoConfig, modules, configurationClass);
+            return new GuiceBundle<T>(s, autoConfig, modules, contextListenerGenerators, configurationClass);
         }
 
     }
@@ -68,11 +80,17 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
         return new Builder<T>();
     }
 
-    private GuiceBundle(Stage stage, AutoConfig autoConfig, List<Module> modules, Optional<Class<T>> configurationClass) {
+    private GuiceBundle(Stage stage,
+                        AutoConfig autoConfig,
+                        List<Module> modules,
+                        List<Function<Injector, ServletContextListener>> contextListenerGenerators,
+                        Optional<Class<T>> configurationClass) {
         Preconditions.checkNotNull(modules);
         Preconditions.checkArgument(!modules.isEmpty());
+        Preconditions.checkNotNull(contextListenerGenerators);
         Preconditions.checkNotNull(stage);
         this.modules = modules;
+        this.contextListenerGenerators = contextListenerGenerators;
         this.autoConfig = autoConfig;
         this.configurationClass = configurationClass;
         this.stage = stage;
@@ -103,6 +121,10 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
         });
         environment.servlets().addFilter("Guice Filter", GuiceFilter.class)
                 .addMappingForUrlPatterns(null, false, environment.getApplicationContext().getContextPath() + "*");
+
+        for (Function<Injector, ServletContextListener> generator : contextListenerGenerators) {
+            environment.servlets().addServletListeners(generator.apply(injector));
+        }
 
         if (autoConfig != null) {
             autoConfig.run(environment, injector);
