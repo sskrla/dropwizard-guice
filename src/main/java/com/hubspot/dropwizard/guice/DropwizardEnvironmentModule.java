@@ -6,10 +6,12 @@ import com.google.common.collect.Lists;
 import com.google.inject.*;
 import com.google.inject.name.Names;
 import io.dropwizard.Configuration;
+import io.dropwizard.jetty.MutableServletContextHandler;
 import io.dropwizard.setup.Environment;
 import org.apache.commons.lang.ClassUtils;
 import org.apache.commons.lang.reflect.FieldUtils;
 
+import javax.servlet.ServletContext;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -38,7 +40,19 @@ public class DropwizardEnvironmentModule<T extends Configuration> extends Abstra
 		}
 
         bindConfigs(configurationClass, new String[]{}, Lists.<Class<?>>newArrayList());
+
+        bindContext("application", environment.getApplicationContext());
 	}
+
+    /**
+     * Bind some of the context objects to be injectable. Annotated with a {@link com.google.inject.name.Names} to
+     * prevent collisions for any that the {@link com.google.inject.servlet.ServletModule} may bind later.
+     */
+    private void bindContext(String name, MutableServletContextHandler context) {
+        bind(ServletContext.class)
+            .annotatedWith(Names.named(name))
+            .toInstance(context.getServletContext());
+    }
 
     private void bindConfigs(Class<?> config, String[] path, List<Class<?>> visited) {
         List<Class<?>> classes = Lists.newArrayList(ClassUtils.getAllSuperclasses(config));
