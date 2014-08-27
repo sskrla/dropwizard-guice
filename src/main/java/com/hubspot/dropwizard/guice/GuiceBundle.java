@@ -139,13 +139,12 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
         }
         dropwizardEnvironmentModule.setEnvironmentData(configuration, environment);
 
-        Injector moduleInjector = initInjector.createChildInjector(
-                jerseyContainerModule,
-                dropwizardEnvironmentModule);
+        Injector moduleInjector = initInjector.createChildInjector(dropwizardEnvironmentModule);
 
         for(Module module: modules)
             moduleInjector.injectMembers(module);
 
+        modules.add(jerseyContainerModule);
         injector = moduleInjector.createChildInjector(modules);
         injector.injectMembers(container);
 
