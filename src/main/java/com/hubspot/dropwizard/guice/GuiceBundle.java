@@ -104,10 +104,6 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
         }
     }
 
-    private Injector initInjector() {
-        return injector = initInjector.createChildInjector(modules);
-    }
-
     @Override
     public void run(final T configuration, final Environment environment) {
         final GuiceContainer container = initGuice(configuration, environment);
@@ -143,10 +139,14 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
         }
         dropwizardEnvironmentModule.setEnvironmentData(configuration, environment);
 
-        modules.add(jerseyContainerModule);
-        modules.add(dropwizardEnvironmentModule);
+        Injector moduleInjector = initInjector.createChildInjector(
+                jerseyContainerModule,
+                dropwizardEnvironmentModule);
 
-        injector = initInjector();
+        for(Module module: modules)
+            moduleInjector.injectMembers(module);
+
+        injector = moduleInjector.createChildInjector(modules);
         injector.injectMembers(container);
 
         return container;
