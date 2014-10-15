@@ -4,10 +4,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.inject.Guice;
-import com.google.inject.Injector;
-import com.google.inject.Module;
-import com.google.inject.Stage;
+import com.google.inject.*;
 import com.google.inject.servlet.GuiceFilter;
 import com.sun.jersey.api.core.ResourceConfig;
 import com.sun.jersey.spi.container.servlet.ServletContainer;
@@ -28,6 +25,7 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
 
     private final AutoConfig autoConfig;
     private final List<Module> modules;
+    private final List<Module> initModules;
     private final List<Function<Injector, ServletContextListener>> contextListenerGenerators;
     private Injector initInjector;
     private Injector injector;
@@ -38,13 +36,34 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
 
     public static class Builder<T extends Configuration> {
         private AutoConfig autoConfig;
+        private List<Module> initModules = Lists.newArrayList();
         private List<Module> modules = Lists.newArrayList();
         private List<Function<Injector, ServletContextListener>> contextListenerGenerators = Lists.newArrayList();
         private Optional<Class<T>> configurationClass = Optional.<Class<T>>absent();
 
+        /**
+         * Add a module to the bundle.
+         * Module may be injected with configuration and environment data.
+         * This module will NOT be available for other Bundles and Commands
+         * initialized with AutoConfig.
+         * Modules will also not be available when running Command and ConfiguredCommands.
+         * Use the "Injected" versions of these commands if these modules are needed.
+         */
         public Builder<T> addModule(Module module) {
             Preconditions.checkNotNull(module);
             modules.add(module);
+            return this;
+        }
+
+        /**
+         * Add a module to the bundle.
+         * Module cannot have injections.
+         * This module will be available for other Bundles and Commands
+         * initialized with AutoConfig.
+         */
+        public Builder<T> addInitModule(Module module) {
+            Preconditions.checkNotNull(module);
+            initModules.add(module);
             return this;
         }
 
@@ -71,7 +90,7 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
         }
 
         public GuiceBundle<T> build(Stage s) {
-            return new GuiceBundle<T>(s, autoConfig, modules, contextListenerGenerators, configurationClass);
+            return new GuiceBundle<T>(s, autoConfig, modules, initModules, contextListenerGenerators, configurationClass);
         }
 
     }
@@ -83,6 +102,7 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
     private GuiceBundle(Stage stage,
                         AutoConfig autoConfig,
                         List<Module> modules,
+                        List<Module> initModules,
                         List<Function<Injector, ServletContextListener>> contextListenerGenerators,
                         Optional<Class<T>> configurationClass) {
         Preconditions.checkNotNull(modules);
@@ -90,6 +110,7 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
         Preconditions.checkNotNull(contextListenerGenerators);
         Preconditions.checkNotNull(stage);
         this.modules = modules;
+        this.initModules = initModules;
         this.contextListenerGenerators = contextListenerGenerators;
         this.autoConfig = autoConfig;
         this.configurationClass = configurationClass;
@@ -98,7 +119,7 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
 
     @Override
     public void initialize(Bootstrap<?> bootstrap) {
-        initInjector = Guice.createInjector(this.stage);
+        initInjector = Guice.createInjector(this.stage, this.initModules);
         if (autoConfig != null) {
             autoConfig.initialize(bootstrap, injector);
         }
