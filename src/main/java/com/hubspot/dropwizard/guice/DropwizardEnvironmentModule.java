@@ -1,6 +1,7 @@
 package com.hubspot.dropwizard.guice;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
 import com.google.inject.*;
@@ -24,7 +25,7 @@ import static java.lang.String.format;
 public class DropwizardEnvironmentModule<T extends Configuration> extends AbstractModule {
 	private static final String ILLEGAL_DROPWIZARD_MODULE_STATE = "The dropwizard environment has not yet been set. This is likely caused by trying to access the dropwizard environment during the bootstrap phase.";
 	private T configuration;
-	private Environment environment;
+	private Optional<Environment> environment;
 	private Class<? super T> configurationClass;
 
 	public DropwizardEnvironmentModule(Class<T> configurationClass) {
@@ -39,9 +40,9 @@ public class DropwizardEnvironmentModule<T extends Configuration> extends Abstra
 			bind(Configuration.class).toProvider(provider);
 		}
 
-        bindConfigs(configurationClass, new String[]{}, Lists.<Class<?>>newArrayList());
+        bindConfigs(configurationClass);
 
-        bindContext("application", environment.getApplicationContext());
+        if(environment.isPresent()) bindContext("application", environment.get().getApplicationContext());
 	}
 
     /**
@@ -54,6 +55,10 @@ public class DropwizardEnvironmentModule<T extends Configuration> extends Abstra
             .toInstance(context.getServletContext());
     }
 
+    private void bindConfigs(Class<?> config) {
+        bindConfigs(config, new String[]{}, Lists.<Class<?>>newArrayList());
+    }
+    @SuppressWarnings("unchecked")
     private void bindConfigs(Class<?> config, String[] path, List<Class<?>> visited) {
         List<Class<?>> classes = Lists.newArrayList(ClassUtils.getAllSuperclasses(config));
         classes.add(config);
@@ -85,15 +90,20 @@ public class DropwizardEnvironmentModule<T extends Configuration> extends Abstra
 
 	public void setEnvironmentData(T configuration, Environment environment) {
 		this.configuration = configuration;
-		this.environment = environment;
+		this.environment = Optional.of(environment);
 	}
+
+    public void setConfigurationData(T configuration) {
+        this.configuration = configuration;
+        this.environment = Optional.absent();
+    }
 
 	@Provides
 	public Environment providesEnvironment() {
 		if (environment == null) {
 			throw new ProvisionException(ILLEGAL_DROPWIZARD_MODULE_STATE);
 		}
-		return environment;
+		return environment.orNull();
 	}
 
 	private class CustomConfigurationProvider implements Provider<T> {

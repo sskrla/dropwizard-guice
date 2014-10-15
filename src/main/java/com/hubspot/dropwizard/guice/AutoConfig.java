@@ -127,6 +127,7 @@ public class AutoConfig {
         Set<Class<? extends Command>> commandClasses = reflections
                 .getSubTypesOf(Command.class);
         for(Class<? extends Command> command : commandClasses) {
+            if(bootstrap.getCommands().contains(command)) continue;
             bootstrap.addCommand(injector.getInstance(command));
             logger.info("Added command class {} durring bootstrap", command);
         }
