@@ -121,7 +121,7 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
     public void initialize(Bootstrap<?> bootstrap) {
         initInjector = Guice.createInjector(this.stage, this.initModules);
         if (autoConfig != null) {
-            autoConfig.initialize(bootstrap, injector);
+            autoConfig.initialize(bootstrap, initInjector);
         }
     }
 
@@ -173,6 +173,6 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
     }
 
     public Injector getInjector() {
-        return injector;
+        return (injector != null) ? injector : initInjector;
     }
 }
