@@ -2,21 +2,18 @@ package com.hubspot.dropwizard.guice;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
-import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
 import com.google.inject.*;
 import com.google.inject.name.Names;
 import io.dropwizard.Configuration;
 import io.dropwizard.jetty.MutableServletContextHandler;
 import io.dropwizard.setup.Environment;
+import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.lang.ClassUtils;
 import org.apache.commons.lang.reflect.FieldUtils;
 
 import javax.servlet.ServletContext;
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import static com.google.common.base.Throwables.propagate;
@@ -27,10 +24,21 @@ public class DropwizardEnvironmentModule<T extends Configuration> extends Abstra
 	private T configuration;
 	private Optional<Environment> environment;
 	private Class<? super T> configurationClass;
+    private String[] configurationPackages;
 
-	public DropwizardEnvironmentModule(Class<T> configurationClass) {
+	public DropwizardEnvironmentModule(Class<T> configurationClass, String[] configurationPackages) {
 		this.configurationClass = configurationClass;
+        if(configurationPackages == null) configurationPackages = new String[0];
+        this.configurationPackages = ensureTypeInPackages(configurationClass, configurationPackages);
 	}
+
+    private String[] ensureTypeInPackages(Class<?> type, String[] packages) {
+        String configName = type.getName();
+        for(String pack : packages) {
+            if(configName.startsWith(pack)) return packages;
+        }
+        return (String[])ArrayUtils.add(packages, configName);
+    }
 
 	@Override
 	protected void configure() {
@@ -65,27 +73,30 @@ public class DropwizardEnvironmentModule<T extends Configuration> extends Abstra
         for(Class<?> cls: classes) {
             for(Field field: cls.getDeclaredFields()) {
                 Class<?> type = field.getType();
-                if(isConfigObject(type) && !visited.contains(type)) {
-                    visited.add(type);
+                visited.add(type);
 
-                    String[] subpath = new String[path.length + 1];
-                    System.arraycopy(path, 0, subpath, 0, path.length);
-                    subpath[path.length] = field.getName();
+                String[] subpath = new String[path.length + 1];
+                System.arraycopy(path, 0, subpath, 0, path.length);
+                subpath[path.length] = field.getName();
 
-                    bind(type)
-                        .annotatedWith(Names.named(Joiner.on(".").join(subpath)))
-                        .toProvider(new ConfigElementProvider(configurationClass, subpath));
+                bind(type)
+                    .annotatedWith(Names.named(Joiner.on(".").join(subpath)))
+                    .toProvider(new ConfigElementProvider(configurationClass, subpath));
 
-                    if(!type.isEnum())
-                        bindConfigs(type, subpath, visited);
-                }
+                if(!type.isEnum() && isInConfigPackage(type))
+                    bindConfigs(type, subpath, visited);
             }
         }
     }
 
-    protected boolean isConfigObject(Class<?> type) {
-        return !type.isPrimitive()
-            && !type.getName().startsWith("java.");
+    private boolean isInConfigPackage(Class<?> type) {
+        String name = type.getName();
+        if(name == null) return false;
+
+        for(String pack : configurationPackages) {
+            if(name.startsWith(pack)) return true;
+        }
+        return false;
     }
 
 	public void setEnvironmentData(T configuration, Environment environment) {

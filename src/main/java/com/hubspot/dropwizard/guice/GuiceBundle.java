@@ -33,6 +33,7 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
     private final List<Module> modules;
     private final List<Module> initModules;
     private final List<Function<Injector, ServletContextListener>> contextListenerGenerators;
+    private final String[] configurationPackages;
     private Injector initInjector;
     private Injector injector;
     private DropwizardEnvironmentModule dropwizardEnvironmentModule;
@@ -46,6 +47,7 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
         private List<Module> modules = Lists.newArrayList();
         private List<Function<Injector, ServletContextListener>> contextListenerGenerators = Lists.newArrayList();
         private Optional<Class<T>> configurationClass = Optional.<Class<T>>absent();
+        private String[] configurationPackages = new String[0];
 
         /**
          * Add a module to the bundle.
@@ -84,6 +86,17 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
             return this;
         }
 
+        /**
+         * Sets a list of base packages that may contain configuration objects.
+         * When config data is bound in the injector, classes within these
+         * packages will be recursed into.
+         */
+        public Builder<T> setConfigPackages(String... basePackages) {
+            Preconditions.checkNotNull(basePackages.length > 0);
+            configurationPackages = basePackages;
+            return this;
+        }
+
         public Builder<T> enableAutoConfig(String... basePackages) {
             Preconditions.checkNotNull(basePackages.length > 0);
             Preconditions.checkArgument(autoConfig == null, "autoConfig already enabled!");
@@ -96,7 +109,7 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
         }
 
         public GuiceBundle<T> build(Stage s) {
-            return new GuiceBundle<T>(s, autoConfig, modules, initModules, contextListenerGenerators, configurationClass);
+            return new GuiceBundle<T>(s, autoConfig, modules, initModules, contextListenerGenerators, configurationClass, configurationPackages);
         }
 
     }
@@ -110,16 +123,19 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
                         List<Module> modules,
                         List<Module> initModules,
                         List<Function<Injector, ServletContextListener>> contextListenerGenerators,
-                        Optional<Class<T>> configurationClass) {
+                        Optional<Class<T>> configurationClass,
+                        String[] configurationPackages) {
         Preconditions.checkNotNull(modules);
         Preconditions.checkArgument(!modules.isEmpty());
         Preconditions.checkNotNull(contextListenerGenerators);
         Preconditions.checkNotNull(stage);
+        Preconditions.checkNotNull(configurationPackages);
         this.modules = modules;
         this.initModules = initModules;
         this.contextListenerGenerators = contextListenerGenerators;
         this.autoConfig = autoConfig;
         this.configurationClass = configurationClass;
+        this.configurationPackages = configurationPackages;
         this.stage = stage;
     }
 
@@ -183,9 +199,9 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
 
     private void initEnvironmentModule() {
         if (configurationClass.isPresent()) {
-            dropwizardEnvironmentModule = new DropwizardEnvironmentModule<T>(configurationClass.get());
+            dropwizardEnvironmentModule = new DropwizardEnvironmentModule<T>(configurationClass.get(), configurationPackages);
         } else {
-            dropwizardEnvironmentModule = new DropwizardEnvironmentModule<Configuration>(Configuration.class);
+            dropwizardEnvironmentModule = new DropwizardEnvironmentModule<Configuration>(Configuration.class, configurationPackages);
         }
     }
 
