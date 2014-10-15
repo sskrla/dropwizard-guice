@@ -1,6 +1,7 @@
 package com.hubspot.dropwizard.guice;
 
 import io.dropwizard.Bundle;
+import io.dropwizard.cli.Command;
 import io.dropwizard.lifecycle.Managed;
 import io.dropwizard.servlets.tasks.Task;
 import io.dropwizard.setup.Bootstrap;
@@ -53,6 +54,7 @@ public class AutoConfig {
 
 	public void initialize(Bootstrap<?> bootstrap, Injector injector) {
 		addBundles(bootstrap, injector);
+        addCommands(bootstrap, injector);
 	}
 
 	private void addManaged(Environment environment, Injector injector) {
@@ -120,4 +122,13 @@ public class AutoConfig {
 			logger.info("Added bundle class {} during bootstrap", bundle);
 		}
 	}
+
+    private void addCommands(Bootstrap<?> bootstrap, Injector injector) {
+        Set<Class<? extends Command>> commandClasses = reflections
+                .getSubTypesOf(Command.class);
+        for(Class<? extends Command> command : commandClasses) {
+            bootstrap.addCommand(injector.getInstance(command));
+            logger.info("Added command class {} durring bootstrap", command);
+        }
+    }
 }
