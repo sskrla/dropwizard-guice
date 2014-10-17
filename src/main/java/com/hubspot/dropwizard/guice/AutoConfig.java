@@ -2,6 +2,8 @@ package com.hubspot.dropwizard.guice;
 
 import io.dropwizard.Bundle;
 import io.dropwizard.cli.Command;
+import io.dropwizard.cli.ConfiguredCommand;
+import io.dropwizard.cli.EnvironmentCommand;
 import io.dropwizard.lifecycle.Managed;
 import io.dropwizard.servlets.tasks.Task;
 import io.dropwizard.setup.Bootstrap;
@@ -126,6 +128,11 @@ public class AutoConfig {
     private void addCommands(Bootstrap<?> bootstrap, Injector injector) {
         Set<Class<? extends Command>> commandClasses = reflections
                 .getSubTypesOf(Command.class);
+        //The SubTypesScanner does not resolve the entire ancestry of a class
+        //This won't get subtyped Commands.  If this becomes a problem, a
+        //replacement Scanner could be written.
+        commandClasses.addAll(reflections.getSubTypesOf(ConfiguredCommand.class));
+        commandClasses.addAll(reflections.getSubTypesOf(EnvironmentCommand.class));
         for(Class<? extends Command> command : commandClasses) {
             if(bootstrap.getCommands().contains(command)) continue;
             bootstrap.addCommand(injector.getInstance(command));
