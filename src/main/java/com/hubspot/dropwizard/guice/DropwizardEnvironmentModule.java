@@ -111,10 +111,10 @@ public class DropwizardEnvironmentModule<T extends Configuration> extends Abstra
 
 	@Provides
 	public Environment providesEnvironment() {
-		if (environment == null) {
+		if (environment == null || !environment.isPresent()) {
 			throw new ProvisionException(ILLEGAL_DROPWIZARD_MODULE_STATE);
 		}
-		return environment.orNull();
+		return environment.get();
 	}
 
 	private class CustomConfigurationProvider implements Provider<T> {

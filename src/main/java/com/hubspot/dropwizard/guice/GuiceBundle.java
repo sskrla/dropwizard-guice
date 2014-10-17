@@ -5,7 +5,6 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Collections2;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.inject.*;
 import com.google.inject.servlet.GuiceFilter;
@@ -21,7 +20,6 @@ import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import javax.servlet.ServletContextListener;
-import java.text.ParseException;
 import java.util.Collection;
 import java.util.List;
 
@@ -151,14 +149,10 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
 
     @SuppressWarnings("unchecked")
     private void setupCommands(Collection<Command> commands) {
-        Collection<Command> guiceCommands = Collections2.filter(commands, new Predicate<Command>() {
-            @Override
-            public boolean apply(@Nullable Command input) {
-                return input instanceof GuiceConfiguredCommand;
+        for(Command c : commands) {
+            if(c instanceof InjectedCommand) {
+                ((InjectedCommand) c).setInit(this);
             }
-        });
-        for(Command c : guiceCommands) {
-            ((GuiceConfiguredCommand)c).setInit(this);
         }
     }
 

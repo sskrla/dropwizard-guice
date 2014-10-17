@@ -10,7 +10,7 @@ import net.sourceforge.argparse4j.inf.Namespace;
  * Must be used in conjunction with the GuiceBundle.
  * Will load the configuration based Guice modules and inject itself before running.
  */
-public abstract class GuiceConfiguredCommand<T extends Configuration> extends ConfiguredCommand<T> {
+public abstract class InjectedCommand<T extends Configuration> extends ConfiguredCommand<T> {
     @Inject
     private GuiceBundle<T> init;
 
@@ -19,7 +19,7 @@ public abstract class GuiceConfiguredCommand<T extends Configuration> extends Co
     }
 
 
-    protected GuiceConfiguredCommand(String name, String description) {
+    protected InjectedCommand(String name, String description) {
         super(name, description);
     }
 
