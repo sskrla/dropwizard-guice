@@ -7,7 +7,9 @@ import com.google.inject.*;
 import com.google.inject.name.Names;
 import io.dropwizard.Configuration;
 import io.dropwizard.jetty.MutableServletContextHandler;
+import io.dropwizard.setup.Bootstrap;
 import io.dropwizard.setup.Environment;
+import net.sourceforge.argparse4j.inf.Namespace;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.lang.ClassUtils;
 import org.apache.commons.lang.reflect.FieldUtils;
@@ -20,9 +22,11 @@ import static com.google.common.base.Throwables.propagate;
 import static java.lang.String.format;
 
 public class DropwizardEnvironmentModule<T extends Configuration> extends AbstractModule {
-	private static final String ILLEGAL_DROPWIZARD_MODULE_STATE = "The dropwizard environment has not yet been set. This is likely caused by trying to access the dropwizard environment during the bootstrap phase.";
-	private T configuration;
+	private static final String ILLEGAL_DROPWIZARD_MODULE_STATE = "The dropwizard environment has not been set. This is likely caused by trying to access the dropwizard environment during the bootstrap phase or during a non-configured command.";
+	private Optional<T> configuration;
 	private Optional<Environment> environment;
+    private Optional<Namespace> namespace = Optional.absent();
+    private Optional<Bootstrap<T>> bootstrap;
 	private Class<? super T> configurationClass;
     private String[] configurationPackages;
 
@@ -43,14 +47,17 @@ public class DropwizardEnvironmentModule<T extends Configuration> extends Abstra
 	@Override
 	protected void configure() {
 		Provider<T> provider = new CustomConfigurationProvider();
-		bind(configurationClass).toProvider(provider);
-		if (configurationClass != Configuration.class) {
-			bind(Configuration.class).toProvider(provider);
-		}
+        if(configuration.isPresent()){
+            bind(configurationClass).toProvider(provider);
+            if (configurationClass != Configuration.class) {
+                bind(Configuration.class).toProvider(provider);
+            }
 
-        bindConfigs(configurationClass);
-
-        if(environment.isPresent()) bindContext("application", environment.get().getApplicationContext());
+            bindConfigs(configurationClass);
+        }
+        if(environment.isPresent()) {
+            bindContext("application", environment.get().getApplicationContext());
+        }
 	}
 
     /**
@@ -99,14 +106,21 @@ public class DropwizardEnvironmentModule<T extends Configuration> extends Abstra
         return false;
     }
 
+    @Deprecated
 	public void setEnvironmentData(T configuration, Environment environment) {
-		this.configuration = configuration;
-		this.environment = Optional.of(environment);
+        setEnvironmentData(null, environment, configuration);
 	}
 
-    public void setConfigurationData(T configuration) {
-        this.configuration = configuration;
-        this.environment = Optional.absent();
+    public void setEnvironmentData(Bootstrap<T> bootstrap,
+                                   Environment environment,
+                                   T configuration) {
+        this.bootstrap = Optional.fromNullable(bootstrap);
+        this.configuration = Optional.fromNullable(configuration);
+        this.environment = Optional.fromNullable(environment);
+    }
+
+    public void setNamespace(Namespace namespace) {
+        this.namespace = Optional.fromNullable(namespace);
     }
 
 	@Provides
@@ -117,13 +131,32 @@ public class DropwizardEnvironmentModule<T extends Configuration> extends Abstra
 		return environment.get();
 	}
 
+    @Provides
+    public Namespace providesNamespace() {
+        if (namespace == null || !namespace.isPresent()) {
+            throw new ProvisionException(ILLEGAL_DROPWIZARD_MODULE_STATE);
+        }
+        return namespace.get();
+    }
+
+    /**
+     * Note: This is a raw type.  Guice cannot inject the full type due to type erasure
+     */
+    @Provides
+    public Bootstrap providesBootstrap() {
+        if (bootstrap == null || !bootstrap.isPresent()) {
+            throw new ProvisionException(ILLEGAL_DROPWIZARD_MODULE_STATE);
+        }
+        return bootstrap.get();
+    }
+
 	private class CustomConfigurationProvider implements Provider<T> {
 		@Override
 		public T get() {
-			if (configuration == null) {
+			if (configuration == null || !configuration.isPresent()) {
 				throw new ProvisionException(ILLEGAL_DROPWIZARD_MODULE_STATE);
 			}
-			return configuration;
+			return configuration.get();
 		}
 	}
 
@@ -157,7 +190,7 @@ public class DropwizardEnvironmentModule<T extends Configuration> extends Abstra
 
         @Override
         public U get() {
-            Object obj = configuration;
+            Object obj = configuration.get();
             for(Field field: path) {
                 try {
                     obj = field.get(obj);

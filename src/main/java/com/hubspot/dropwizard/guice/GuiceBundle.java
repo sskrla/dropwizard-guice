@@ -3,8 +3,6 @@ package com.hubspot.dropwizard.guice;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
-import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
 import com.google.inject.*;
 import com.google.inject.servlet.GuiceFilter;
@@ -15,6 +13,7 @@ import io.dropwizard.ConfiguredBundle;
 import io.dropwizard.cli.Command;
 import io.dropwizard.setup.Bootstrap;
 import io.dropwizard.setup.Environment;
+import net.sourceforge.argparse4j.inf.Namespace;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,10 +49,9 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
         /**
          * Add a module to the bundle.
          * Module may be injected with configuration and environment data.
-         * This module will NOT be available for other Bundles and Commands
-         * initialized with AutoConfig.
-         * Modules will also not be available when running Command and ConfiguredCommands.
-         * Use GuiceConfiguredCommand to use these modules.
+         * This module will NOT be available for other Bundles and Commands initialized with AutoConfig.
+         * Modules will also NOT be available when running classic Command and ConfiguredCommands.
+         * They will be available when using InjectedConfiguredCommand, however.
          */
         public Builder<T> addModule(Module module) {
             Preconditions.checkNotNull(module);
@@ -63,7 +61,7 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
 
         /**
          * Add a module to the bundle.
-         * Module cannot have injections.
+         * Module will not be injected itself.
          * This module will be available for other Bundles and Commands
          * initialized with AutoConfig.
          */
@@ -150,45 +148,47 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
     @SuppressWarnings("unchecked")
     private void setupCommands(Collection<Command> commands) {
         for(Command c : commands) {
-            if(c instanceof InjectedCommand) {
-                ((InjectedCommand) c).setInit(this);
+            if(c instanceof GuiceCommand) {
+                ((GuiceCommand) c).setInit(this);
             }
         }
     }
 
     @Override
     public void run(final T configuration, final Environment environment) {
+        run(null, environment, configuration);
+    }
+    void run(Bootstrap<T> bootstrap, Environment environment, final T configuration) {
         initEnvironmentModule();
-        dropwizardEnvironmentModule.setEnvironmentData(configuration, environment);
-        final GuiceContainer container = initGuice(configuration, environment);
+        dropwizardEnvironmentModule.setEnvironmentData(bootstrap, environment, configuration);
+        //The secondary injected modules generally use config data.  If we are starting up a command
+        //that doesn't have a configuration, loading these modules is useless at best.
+        boolean addModules = configuration != null;
+        final Optional<GuiceContainer> container = initGuice(environment, addModules);
 
-        environment.jersey().replace(new Function<ResourceConfig, ServletContainer>() {
-            @Nullable
-            @Override
-            public ServletContainer apply(ResourceConfig resourceConfig) {
-                return container;
+        if(container.isPresent() && environment != null) {
+            environment.jersey().replace(new Function<ResourceConfig, ServletContainer>() {
+                @Nullable
+                @Override
+                public ServletContainer apply(ResourceConfig resourceConfig) {
+                    return container.get();
+                }
+            });
+            environment.servlets().addFilter("Guice Filter", GuiceFilter.class)
+                    .addMappingForUrlPatterns(null, false, environment.getApplicationContext().getContextPath() + "*");
+
+            for (Function<Injector, ServletContextListener> generator : contextListenerGenerators) {
+                environment.servlets().addServletListeners(generator.apply(injector));
             }
-        });
-        environment.servlets().addFilter("Guice Filter", GuiceFilter.class)
-                .addMappingForUrlPatterns(null, false, environment.getApplicationContext().getContextPath() + "*");
 
-        for (Function<Injector, ServletContextListener> generator : contextListenerGenerators) {
-            environment.servlets().addServletListeners(generator.apply(injector));
-        }
-
-        if (autoConfig != null) {
-            autoConfig.run(environment, injector);
+            if (autoConfig != null) {
+                autoConfig.run(environment, injector);
+            }
         }
     }
 
-    public void run(final T configuration, final Command command) {
-        initEnvironmentModule();
-        dropwizardEnvironmentModule.setConfigurationData(configuration);
-
-        Injector moduleInjector = initInjector.createChildInjector(dropwizardEnvironmentModule);
-        for(Module module: modules) moduleInjector.injectMembers(module);
-        injector = moduleInjector.createChildInjector(modules);
-        injector.injectMembers(command);
+    void setNamespace(Namespace namespace) {
+        dropwizardEnvironmentModule.setNamespace(namespace);
     }
 
     private void initEnvironmentModule() {
@@ -199,22 +199,29 @@ public class GuiceBundle<T extends Configuration> implements ConfiguredBundle<T>
         }
     }
 
-    private GuiceContainer initGuice(final T configuration, final Environment environment) {
-        GuiceContainer container = new GuiceContainer();
-        container.setResourceConfig(environment.jersey().getResourceConfig());
+    private Optional<GuiceContainer> initGuice(final Environment environment, boolean addModules) {
+        GuiceContainer container = null;
+        JerseyContainerModule jerseyContainerModule = null;
+        if(environment != null) {
+            container = new GuiceContainer();
+            container.setResourceConfig(environment.jersey().getResourceConfig());
 
-        JerseyContainerModule jerseyContainerModule = new JerseyContainerModule(container);
+            jerseyContainerModule = new JerseyContainerModule(container);
+        }
 
-        Injector moduleInjector = initInjector.createChildInjector(dropwizardEnvironmentModule);
+        Injector environmentInjector = initInjector.createChildInjector(dropwizardEnvironmentModule);
 
-        for(Module module: modules)
-            moduleInjector.injectMembers(module);
+        if(addModules) {
+            for (Module module : modules)
+                environmentInjector.injectMembers(module);
 
-        modules.add(jerseyContainerModule);
-        injector = moduleInjector.createChildInjector(modules);
-        injector.injectMembers(container);
+            if (jerseyContainerModule != null) modules.add(jerseyContainerModule);
+            injector = environmentInjector.createChildInjector(modules);
+        }
+        else injector = environmentInjector;
+        if(container != null) injector.injectMembers(container);
 
-        return container;
+        return Optional.fromNullable(container);
     }
 
     public Provider<Injector> getInjector() {
