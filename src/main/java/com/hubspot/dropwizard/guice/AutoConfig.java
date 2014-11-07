@@ -1,6 +1,11 @@
 package com.hubspot.dropwizard.guice;
 
+import com.google.common.base.Function;
+import com.google.common.collect.Collections2;
 import io.dropwizard.Bundle;
+import io.dropwizard.cli.Command;
+import io.dropwizard.cli.ConfiguredCommand;
+import io.dropwizard.cli.EnvironmentCommand;
 import io.dropwizard.lifecycle.Managed;
 import io.dropwizard.servlets.tasks.Task;
 import io.dropwizard.setup.Bootstrap;
@@ -19,6 +24,7 @@ import org.slf4j.LoggerFactory;
 
 import javax.ws.rs.Path;
 import javax.ws.rs.ext.Provider;
+import java.util.Collection;
 import java.util.Set;
 
 public class AutoConfig {
@@ -53,6 +59,7 @@ public class AutoConfig {
 
 	public void initialize(Bootstrap<?> bootstrap, Injector injector) {
 		addBundles(bootstrap, injector);
+        addCommands(bootstrap, injector);
 	}
 
 	private void addManaged(Environment environment, Injector injector) {
@@ -120,4 +127,29 @@ public class AutoConfig {
 			logger.info("Added bundle class {} during bootstrap", bundle);
 		}
 	}
+
+    private void addCommands(Bootstrap<?> bootstrap, Injector injector) {
+        Collection<Object> existingCommands = Collections2.transform(bootstrap.getCommands(), new Function<Command, Object>() {
+            @Override
+            public Class<? extends Command> apply(Command input) {
+                return input.getClass();
+            }
+        });
+
+        Set<Class<? extends Command>> commandClasses = reflections.getSubTypesOf(Command.class);
+        //The SubTypesScanner does not resolve the entire ancestry of a class
+        //This won't get subtyped Commands.  If this becomes a problem, a
+        //replacement Scanner could be written.  It is getting a bit ridiculous
+        //with all the Injected commands as well.
+        commandClasses.addAll(reflections.getSubTypesOf(ConfiguredCommand.class));
+        commandClasses.addAll(reflections.getSubTypesOf(EnvironmentCommand.class));
+        commandClasses.addAll(reflections.getSubTypesOf(InjectedCommand.class));
+        commandClasses.addAll(reflections.getSubTypesOf(InjectedConfiguredCommand.class));
+        commandClasses.addAll(reflections.getSubTypesOf(InjectedEnvironmentCommand.class));
+        for(Class<? extends Command> command : commandClasses) {
+            if(existingCommands.contains(command)) continue;
+            bootstrap.addCommand(injector.getInstance(command));
+            logger.info("Added command class {} durring bootstrap", command);
+        }
+    }
 }
